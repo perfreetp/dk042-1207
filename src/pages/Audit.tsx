@@ -23,38 +23,57 @@ export default function Audit() {
   const location = useLocation();
   const { getStandardById, standards } = useStandardStore();
 
+  // 直接订阅全量 applies，确保任何状态变化都触发重渲染，统计数字实时更新
+  const allApplies = useUnifiedApplyStore((s) => s.applies);
   const {
     auditFilterStatus, setAuditFilterStatus,
     selectedApplyId, setSelectedApplyId,
     auditComment, setAuditComment,
-    getFilteredAppliesForAudit, getPendingCount, getSelectedApply,
+    getFilteredAppliesForAudit, getSelectedApply,
     approveApply, rejectApply,
   } = useUnifiedApplyStore();
 
   const applies = getFilteredAppliesForAudit();
   const selectedApply = getSelectedApply();
 
-  const state = location.state as { focusApplyId?: string; fromStandardId?: string } | null;
+  // 跳转定位：从标准详情/引用查询过来时，自动切换筛选保证目标可见
+  const state = location.state as { focusApplyId?: string; fromStandardId?: string; fromApplyId?: string } | null;
   useEffect(() => {
-    if (state?.focusApplyId) {
-      setSelectedApplyId(state.focusApplyId);
-      setAuditComment('');
-    } else if (state?.fromStandardId) {
-      const first = applies.find(a => a.standardId === state.fromStandardId);
-      if (first) setSelectedApplyId(first.id);
+    const targetId = state?.focusApplyId || state?.fromApplyId;
+    if (targetId) {
+      const target = allApplies.find(a => a.id === targetId);
+      if (target) {
+        // 若当前筛选不含该申请，自动切到 'all' 保证可见
+        if (auditFilterStatus !== 'all' && target.status !== auditFilterStatus) {
+          setAuditFilterStatus('all');
+        }
+        setSelectedApplyId(target.id);
+        setAuditComment('');
+        return;
+      }
     }
-  }, [state?.focusApplyId, state?.fromStandardId]);
+    if (state?.fromStandardId) {
+      // 在全量中找第 1 条匹配的，避免被筛选挡住
+      const first = allApplies.find(a =>
+        a.standardId === state.fromStandardId ||
+        (a.type === 'create' && a.status === 'approved' &&
+          standards.find(s => s.code === a.standardData.code)?.id === state.fromStandardId)
+      );
+      if (first) {
+        if (auditFilterStatus !== 'all' && first.status !== auditFilterStatus) {
+          setAuditFilterStatus('all');
+        }
+        setSelectedApplyId(first.id);
+        setAuditComment('');
+      }
+    }
+  }, [state?.focusApplyId, state?.fromStandardId, state?.fromApplyId, allApplies, standards, auditFilterStatus]);
 
-  const pendingCount = getPendingCount();
-  const approvedCount = useMemo(
-    () => useUnifiedApplyStore.getState().applies.filter(a => a.status === 'approved').length,
-    [applies.length]
-  );
-  const rejectedCount = useMemo(
-    () => useUnifiedApplyStore.getState().applies.filter(a => a.status === 'rejected').length,
-    [applies.length]
-  );
-  const totalCount = useUnifiedApplyStore.getState().applies.length;
+  // 基于全量 applies 计算统计，实时且准确
+  const pendingCount = useMemo(() => allApplies.filter(a => a.status === 'pending').length, [allApplies]);
+  const approvedCount = useMemo(() => allApplies.filter(a => a.status === 'approved').length, [allApplies]);
+  const rejectedCount = useMemo(() => allApplies.filter(a => a.status === 'rejected').length, [allApplies]);
+  const totalCount = allApplies.length;
 
   const getOriginalStandard = (standardId?: string) => {
     if (!standardId) return null;

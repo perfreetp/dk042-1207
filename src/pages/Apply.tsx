@@ -43,6 +43,8 @@ export default function Apply() {
   const location = useLocation();
   const { getStandardById, standards } = useStandardStore();
 
+  // 直接订阅全量 applies，保证实时性和定位准确性
+  const allApplies = useUnifiedApplyStore((s) => s.applies);
   const {
     listFilterStatus, applyCurrentTab, setListFilterStatus, setApplyCurrentTab,
     getFilteredAppliesForList, createApply, withdrawApply,
@@ -65,11 +67,35 @@ export default function Apply() {
   const [highlightApplyId, setHighlightApplyId] = useState<string | null>(null);
   const [highlightBreadcrumb, setHighlightBreadcrumb] = useState<{ standard?: Standard; applyId?: string } | null>(null);
 
+  // 跳转定位：自动切 Tab + 自动调筛选，确保目标申请可见
   useEffect(() => {
     const state = location.state as {
       editStandardId?: string; formType?: 'update'; fromAuditId?: string;
-      focusApplyId?: string; focusStandardId?: string;
+      focusApplyId?: string; focusStandardId?: string; fromApplyId?: string;
     } | null;
+
+    const targetApplyId = state?.focusApplyId || state?.fromApplyId;
+    let targetApply = targetApplyId ? allApplies.find(a => a.id === targetApplyId) : undefined;
+
+    // 从标准详情来，找第 1 条关联申请
+    if (!targetApply && state?.focusStandardId) {
+      targetApply = allApplies.find(a =>
+        a.standardId === state.focusStandardId ||
+        (a.type === 'create' && a.status === 'approved' &&
+          standards.find(s => s.code === a.standardData.code)?.id === state.focusStandardId)
+      );
+    }
+
+    if (targetApply) {
+      // 切到我的申请 Tab
+      setActiveTab('my-applies');
+      // 若当前筛选不包含目标申请，自动切到 all
+      if (filterStatus !== 'all' && targetApply.status !== filterStatus) {
+        setFilterStatus('all');
+      }
+      setHighlightApplyId(targetApply.id);
+    }
+
     if (state?.editStandardId && state?.formType === 'update') {
       const standard = getStandardById(state.editStandardId);
       if (standard) {
@@ -90,14 +116,22 @@ export default function Apply() {
     if (state?.focusStandardId) {
       setHighlightStandardId(state.focusStandardId);
       setActiveTab('my-applies');
-      // 尝试把关联的标准也加到面包屑里
       const std = getStandardById(state.focusStandardId);
-      setHighlightBreadcrumb({ standard: std, applyId: state.focusApplyId });
+      setHighlightBreadcrumb({ standard: std, applyId: targetApply?.id });
     }
-    if (state?.focusApplyId) {
-      setHighlightApplyId(state.focusApplyId);
+    if (state?.focusApplyId || state?.fromApplyId) {
+      // 面包屑里展示申请对应的标准信息
+      const apply = targetApply || allApplies.find(a => a.id === (state.focusApplyId || state.fromApplyId));
+      if (apply) {
+        const std = apply.standardId
+          ? getStandardById(apply.standardId)
+          : apply.type === 'create' && apply.status === 'approved'
+            ? standards.find(s => s.code === apply.standardData.code)
+            : undefined;
+        setHighlightBreadcrumb({ standard: std, applyId: apply.id });
+      }
     }
-  }, [location.state, getStandardById]);
+  }, [location.state, getStandardById, allApplies, standards, filterStatus]);
 
   useEffect(() => { setListFilterStatus(filterStatus); }, [filterStatus, setListFilterStatus]);
   useEffect(() => { setApplyCurrentTab(activeTab); }, [activeTab, setApplyCurrentTab]);

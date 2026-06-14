@@ -242,18 +242,58 @@ export const useUnifiedApplyStore = create<UnifiedApplyState>((set, get) => ({
   setBatchImported: (val) => set({ batchImported: val }),
 
   confirmBatchImport: () => {
-    const { batchData, createApply } = get();
+    const { batchData: rawBatch, createApply, applies } = get();
+    const { standards } = useStandardStore.getState();
     let success = 0;
     let failed = 0;
 
-    const newBatch: BatchItem[] = batchData.map(item => {
+    // 第一步：先对所有待确认数据做全量去重校验，标记错误
+    const seenCodes = new Set<string>();
+    const validatedBatch: BatchItem[] = rawBatch.map(item => {
+      if (item.imported || item.error) return item;
+      if (item.status !== '待确认') return item;
+
+      const code = item.code?.trim().toUpperCase() || '';
+      const nameCn = item.nameCn?.trim() || '';
+
+      if (!nameCn || !code) {
+        failed++;
+        return { ...item, error: '中文名和编码不能为空', status: '数据异常' as const };
+      }
+      // 同批内重复
+      if (seenCodes.has(code)) {
+        failed++;
+        return { ...item, error: `与同批其他数据编码重复 (${code})`, status: '重复编码' as const };
+      }
+      seenCodes.add(code);
+      // 与待审核申请重复
+      const pendingDup = applies.some(a =>
+        a.status === 'pending' && a.type === 'create' &&
+        a.standardData.code?.trim().toUpperCase() === code
+      );
+      if (pendingDup) {
+        failed++;
+        return { ...item, error: `与待审核申请编码重复 (${code})`, status: '重复编码' as const };
+      }
+      // 与已发布标准重复
+      const stdDup = standards.some(s => s.code?.trim().toUpperCase() === code);
+      if (stdDup) {
+        failed++;
+        return { ...item, error: `与已发布标准编码重复 (${code})`, status: '重复编码' as const };
+      }
+      return item;
+    });
+
+    // 第二步：只对有效数据生成申请
+    const finalBatch: BatchItem[] = validatedBatch.map(item => {
       if (item.status === '待确认' && !item.error && !item.imported) {
+        const code = item.code?.trim().toUpperCase() || '';
         createApply({
           type: 'create',
           standardData: {
             nameCn: item.nameCn,
             nameEn: item.nameEn,
-            code: item.code,
+            code,
             domainName: item.domain,
             meaning: `【批量导入】${item.nameCn}标准定义待补充`,
             valueRange: '待补充',
@@ -266,32 +306,56 @@ export const useUnifiedApplyStore = create<UnifiedApplyState>((set, get) => ({
         success++;
         return { ...item, imported: true, status: '已生成申请' };
       }
-      if (item.error) failed++;
       return item;
     });
 
-    persistBatch(newBatch);
-    set({ batchImported: false, batchData: newBatch });
-    return { success, failed };
+    // 统计总异常数（原有错误 + 新标记的错误）
+    const totalFailed = finalBatch.filter(b => b.error).length;
+
+    persistBatch(finalBatch);
+    set({ batchImported: false, batchData: finalBatch });
+    return { success, failed: totalFailed };
   },
 
   updateBatchItem: (index, patch) => {
-    const { batchData } = get();
+    const { batchData, applies } = get();
     const updated = [...batchData];
-    const original = updated[index] || {};
-    const merged = { ...original, ...patch };
+    const original = (updated[index] || {}) as BatchItem;
+    const merged: BatchItem = { ...original, ...patch } as BatchItem;
 
+    const code = merged.code?.trim().toUpperCase() || '';
+    const nameCn = merged.nameCn?.trim() || '';
     const { standards } = useStandardStore.getState();
-    const codeDuplicate = standards.some(s => s.code === merged.code);
-    if (codeDuplicate) {
-      merged.error = `与现有标准 ${merged.code} 编码重复`;
-      merged.status = '重复编码';
-    } else if (!merged.nameCn.trim() || !merged.code.trim()) {
+
+    if (!nameCn || !code) {
       merged.error = '中文名和编码不能为空';
       merged.status = '数据异常';
     } else {
-      delete merged.error;
-      merged.status = merged.imported ? '已生成申请' : '待确认';
+      // 1. 同批内重复编码（排除自己）
+      const inBatchDup = updated.some((item, i) =>
+        i !== index && !item.imported && item.code?.trim().toUpperCase() === code
+      );
+      // 2. 与待审核申请重复编码
+      const pendingDup = applies.some(a =>
+        a.status === 'pending' && a.type === 'create' &&
+        a.standardData.code?.trim().toUpperCase() === code
+      );
+      // 3. 与已发布标准重复编码
+      const stdDup = standards.some(s => s.code?.trim().toUpperCase() === code);
+
+      if (inBatchDup) {
+        merged.error = `与同批其他数据编码重复 (${code})`;
+        merged.status = '重复编码';
+      } else if (pendingDup) {
+        merged.error = `与待审核申请编码重复 (${code})`;
+        merged.status = '重复编码';
+      } else if (stdDup) {
+        merged.error = `与已发布标准编码重复 (${code})`;
+        merged.status = '重复编码';
+      } else {
+        delete merged.error;
+        merged.status = merged.imported ? '已生成申请' : '待确认';
+      }
     }
 
     updated[index] = merged;
@@ -300,17 +364,32 @@ export const useUnifiedApplyStore = create<UnifiedApplyState>((set, get) => ({
   },
 
   validateAndSubmitBatchItem: (index) => {
-    const { batchData, createApply } = get();
+    const { batchData, createApply, applies } = get();
     const item = batchData[index];
     if (!item) return null;
     if (item.error || item.imported) return null;
+
+    const code = item.code?.trim().toUpperCase() || '';
+    if (!code || !item.nameCn?.trim()) return null;
+
+    // 提交前最后一道校验：检查同批已生成申请的编码、待审核申请编码、标准编码
+    const { standards } = useStandardStore.getState();
+    const inBatchDup = batchData.some((b, i) =>
+      i !== index && b.code?.trim().toUpperCase() === code
+    );
+    const pendingDup = applies.some(a =>
+      a.status === 'pending' && a.type === 'create' &&
+      a.standardData.code?.trim().toUpperCase() === code
+    );
+    const stdDup = standards.some(s => s.code?.trim().toUpperCase() === code);
+    if (inBatchDup || pendingDup || stdDup) return null;
 
     const newId = createApply({
       type: 'create',
       standardData: {
         nameCn: item.nameCn,
         nameEn: item.nameEn,
-        code: item.code,
+        code,
         domainName: item.domain,
         meaning: `【批量导入单行修复提交】${item.nameCn}标准定义待补充`,
         valueRange: '待补充',
