@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Link2,
   Monitor,
@@ -15,19 +15,28 @@ import {
   Building,
   Hash,
   Tag,
+  ArrowLeft,
+  ShieldCheck,
+  FileEdit,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { Tag as UTag } from '@/components/ui/Tag';
 import { businessSystems, references } from '@/data/systems';
-import { standards } from '@/data/standards';
+import { useStandardStore } from '@/store/useStandardStore';
+import { useUnifiedApplyStore } from '@/store/useUnifiedApplyStore';
 
 type ViewMode = 'systems' | 'standards';
 
 export default function Reference() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const standards = useStandardStore((s) => s.standards);
+  const applies = useUnifiedApplyStore((s) => s.applies);
 
   const [viewMode, setViewMode] = useState<ViewMode>('systems');
+  const [breadcrumbFromApplyId, setBreadcrumbFromApplyId] = useState<string | null>(null);
+  const [breadcrumbFromStandardId, setBreadcrumbFromStandardId] = useState<string | null>(null);
 
   // 系统视角状态
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
@@ -37,6 +46,39 @@ export default function Reference() {
   // 标准视角状态
   const [selectedStandardId, setSelectedStandardId] = useState<string | null>(null);
   const [standardSearch, setStandardSearch] = useState('');
+
+  // 自动定位：接收 focusStandardId / fromStandardId / fromApplyId
+  useEffect(() => {
+    const state = location.state as Record<string, string> | undefined;
+    if (!state) return;
+
+    const { focusStandardId, fromStandardId, fromApplyId } = state;
+    if (fromApplyId) setBreadcrumbFromApplyId(fromApplyId);
+    if (fromStandardId) setBreadcrumbFromStandardId(fromStandardId);
+
+    const targetStdId = focusStandardId || fromStandardId;
+    if (targetStdId) {
+      // 切换到按标准查询 Tab
+      setViewMode('standards');
+      setSelectedSystemId(null);
+      // 若标准存在直接选中，否则把编码填进搜索框提示用户
+      const exists = standards.find((s) => s.id === targetStdId);
+      if (exists) {
+        setStandardSearch('');
+        setSelectedStandardId(targetStdId);
+      } else {
+        // 尝试按编码匹配
+        const byCode = standards.find((s) => s.code === targetStdId);
+        if (byCode) {
+          setStandardSearch('');
+          setSelectedStandardId(byCode.id);
+        } else {
+          setStandardSearch(targetStdId);
+          setSelectedStandardId(null);
+        }
+      }
+    }
+  }, [location.state, standards]);
 
   // 系统视角：过滤业务系统
   const filteredSystems = useMemo(() => {
@@ -49,13 +91,13 @@ export default function Reference() {
     );
   }, [systemSearch]);
 
-  // 标准视角：过滤标准（按标准名或编码搜索）
+  // 标准视角：过滤标准（按标准名或编码搜索），使用 Store 中的实时标准数据
   const standardsWithRefs = useMemo(() => {
     return standards.map((std) => {
       const stdRefs = references.filter((r) => r.standardId === std.id);
       return { ...std, refCount: stdRefs.length, refs: stdRefs };
     });
-  }, []);
+  }, [standards]);
 
   const filteredStandards = useMemo(() => {
     const list = standardsWithRefs.filter((s) => s.refCount > 0);
@@ -89,9 +131,72 @@ export default function Reference() {
 
   const totalStandardsWithRefs = standardsWithRefs.filter((s) => s.refCount > 0).length;
 
+  const breadcrumbApply = breadcrumbFromApplyId ? applies.find((a) => a.id === breadcrumbFromApplyId) : null;
+  const breadcrumbStandard = breadcrumbFromStandardId
+    ? standards.find((s) => s.id === breadcrumbFromStandardId)
+    : selectedStandardId
+      ? standards.find((s) => s.id === selectedStandardId)
+      : null;
+
   return (
     <Layout title="引用查询" subtitle="查询业务系统对数据标准的引用关系">
       <div className="space-y-4">
+        {/* 面包屑联动提示 */}
+        {(breadcrumbApply || breadcrumbStandard) && (
+          <div className="bg-gradient-to-r from-primary-50 to-accent-50 border border-primary-100 rounded-lg px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2 text-sm flex-wrap">
+              {breadcrumbApply && (
+                <>
+                  <button
+                    onClick={() => navigate('/apply', { state: { focusApplyId: breadcrumbApply.id } })}
+                    className="flex items-center gap-1.5 text-primary-700 hover:text-primary-800 font-medium bg-white/60 hover:bg-white px-2.5 py-1 rounded-md transition-colors"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    返回申请 #{breadcrumbApply.id}
+                  </button>
+                  <span className="text-slate-300">→</span>
+                  <button
+                    onClick={() => navigate('/audit', { state: { focusApplyId: breadcrumbApply.id } })}
+                    className="flex items-center gap-1.5 text-primary-600 hover:text-primary-700 bg-white/40 hover:bg-white/70 px-2.5 py-1 rounded-md transition-colors"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    在审核中心查看
+                  </button>
+                  <span className="text-slate-300">→</span>
+                </>
+              )}
+              {breadcrumbStandard && (
+                <>
+                  <span className="text-slate-600 flex items-center gap-1.5">
+                    <Database className="w-3.5 h-3.5 text-accent-600" />
+                    当前围绕标准：
+                    <span className="font-medium text-slate-800">{breadcrumbStandard.nameCn}</span>
+                    <span className="font-mono text-xs text-slate-500">({breadcrumbStandard.code})</span>
+                  </span>
+                  <button
+                    onClick={() => navigate(`/standard/${breadcrumbStandard.id}`, {
+                      state: breadcrumbApply ? { fromApplyId: breadcrumbApply.id } : undefined,
+                    })}
+                    className="flex items-center gap-1.5 text-primary-600 hover:text-primary-700 bg-white/60 hover:bg-white px-2.5 py-1 rounded-md transition-colors ml-1"
+                  >
+                    <FileEdit className="w-3.5 h-3.5" />
+                    打开标准详情
+                  </button>
+                </>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                setBreadcrumbFromApplyId(null);
+                setBreadcrumbFromStandardId(null);
+              }}
+              className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              清除定位
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-3 gap-4">
           <div className="bg-white border border-slate-200 rounded-lg p-4">
             <div className="flex items-center justify-between">
@@ -458,44 +563,80 @@ export default function Reference() {
               selectedStandard ? (
                 <>
                   <div className="p-4 border-b border-slate-200 flex-shrink-0">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-accent-500 to-primary-600 flex items-center justify-center flex-shrink-0">
-                          <Database className="w-6 h-6 text-white" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            <h3 className="font-semibold text-slate-800 text-lg">{selectedStandard.nameCn}</h3>
-                            <UTag variant="accent">{selectedStandard.domainName}</UTag>
-                            <UTag variant="default">{selectedStandard.version}</UTag>
+                    <div className={`flex items-start justify-between gap-4 ${
+                        breadcrumbFromStandardId === selectedStandard.id ? 'ring-2 ring-primary-200 rounded-t-xl -m-4 mb-0 p-4 bg-gradient-to-r from-primary-50/70 to-transparent' : ''
+                      }`}>
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-accent-500 to-primary-600 flex items-center justify-center flex-shrink-0">
+                            <Database className="w-6 h-6 text-white" />
                           </div>
-                          <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
-                            <span className="flex items-center gap-1">
-                              <Code className="w-3.5 h-3.5" />
-                              <span className="font-mono">{selectedStandard.code}</span>
-                            </span>
-                            <span className="text-slate-300">·</span>
-                            <span className="flex items-center gap-1">
-                              <User className="w-3.5 h-3.5" />
-                              负责人：{selectedStandard.owner}
-                            </span>
-                            <span className="text-slate-300">·</span>
-                            <span className="flex items-center gap-1">
-                              <Link2 className="w-3.5 h-3.5" />
-                              被 <span className="font-medium text-primary-600">{standardRefSystems.length}</span> 个系统引用
-                            </span>
-                          </p>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <h3 className="font-semibold text-slate-800 text-lg">{selectedStandard.nameCn}</h3>
+                              <UTag variant="accent">{selectedStandard.domainName}</UTag>
+                              <UTag variant="default">{selectedStandard.version}</UTag>
+                              {selectedStandard.status === 'deprecated' && (
+                                <UTag variant="warning">已停用</UTag>
+                              )}
+                              {breadcrumbFromStandardId === selectedStandard.id && (
+                                <UTag variant="primary">当前定位</UTag>
+                              )}
+                            </div>
+                            <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
+                              <span className="flex items-center gap-1">
+                                <Code className="w-3.5 h-3.5" />
+                                <span className="font-mono">{selectedStandard.code}</span>
+                              </span>
+                              <span className="text-slate-300">·</span>
+                              <span className="flex items-center gap-1">
+                                <User className="w-3.5 h-3.5" />
+                                负责人：{selectedStandard.owner}
+                              </span>
+                              <span className="text-slate-300">·</span>
+                              <span className="flex items-center gap-1">
+                                <Link2 className="w-3.5 h-3.5" />
+                                被 <span className="font-medium text-primary-600">{standardRefSystems.length}</span> 个系统引用
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-1.5 items-end flex-shrink-0">
+                          <button
+                            onClick={() => navigate(`/standard/${selectedStandard.id}`, {
+                              state: breadcrumbFromApplyId
+                                ? { fromApplyId: breadcrumbFromApplyId, focusTab: 'ledger' }
+                                : { focusTab: 'ledger' },
+                            })}
+                            className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1 bg-primary-50 px-3 py-1.5 rounded-md hover:bg-primary-100 transition-colors w-full justify-center"
+                          >
+                            <FileText className="w-4 h-4" />
+                            查看详情
+                            <ArrowRight className="w-4 h-4" />
+                          </button>
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => navigate('/audit', {
+                                state: { fromStandardId: selectedStandard.id },
+                              })}
+                              className="text-xs text-slate-600 hover:text-primary-700 flex items-center gap-1 bg-slate-50 hover:bg-primary-50 px-2 py-1 rounded transition-colors"
+                              title="查看该标准的所有审核记录"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              审核记录
+                            </button>
+                            <button
+                              onClick={() => navigate('/apply', {
+                                state: { focusStandardId: selectedStandard.id },
+                              })}
+                              className="text-xs text-slate-600 hover:text-primary-700 flex items-center gap-1 bg-slate-50 hover:bg-primary-50 px-2 py-1 rounded transition-colors"
+                              title="查看该标准的所有申请记录"
+                            >
+                              <FileEdit className="w-3.5 h-3.5" />
+                              申请台账
+                            </button>
+                          </div>
                         </div>
                       </div>
-                      <button
-                        onClick={() => navigate(`/standard/${selectedStandard.id}`)}
-                        className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1 flex-shrink-0 bg-primary-50 px-3 py-1.5 rounded-md hover:bg-primary-100 transition-colors"
-                      >
-                        <FileText className="w-4 h-4" />
-                        查看详情
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </div>
                   </div>
 
                   <div className="p-4 bg-slate-50/50 border-b border-slate-200 flex-shrink-0">

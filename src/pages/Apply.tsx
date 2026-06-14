@@ -1,21 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  FileText,
-  Upload,
-  Plus,
-  Download,
-  Clock,
-  User,
-  CheckCircle,
-  XCircle,
-  Trash2,
-  FileSpreadsheet,
-  AlertCircle,
-  X,
-  Edit3,
-  ChevronRight,
-  Check,
+  FileText, Upload, Plus, Download, Clock, User, CheckCircle, XCircle,
+  Trash2, FileSpreadsheet, AlertCircle, X, Edit3, ChevronRight, Check,
+  ExternalLink, RefreshCcw, Eye, Save, Database, ShieldCheck, Link2,
 } from 'lucide-react';
 import { Layout } from '@/components/Layout';
 import { Tag } from '@/components/ui/Tag';
@@ -39,48 +27,27 @@ const statusConfig = {
 };
 
 interface FormState {
-  nameCn: string;
-  nameEn: string;
-  code: string;
-  domainName: string;
-  dataType: string;
-  owner: string;
-  meaning: string;
-  valueRange: string;
-  example: string;
-  applyReason: string;
+  nameCn: string; nameEn: string; code: string; domainName: string;
+  dataType: string; owner: string; meaning: string; valueRange: string;
+  example: string; applyReason: string;
 }
 
 const emptyForm: FormState = {
-  nameCn: '',
-  nameEn: '',
-  code: '',
-  domainName: '',
-  dataType: 'string',
-  owner: '',
-  meaning: '',
-  valueRange: '',
-  example: '',
-  applyReason: '',
+  nameCn: '', nameEn: '', code: '', domainName: '',
+  dataType: 'string', owner: '', meaning: '', valueRange: '',
+  example: '', applyReason: '',
 };
 
 export default function Apply() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { getStandardById } = useStandardStore();
+  const { getStandardById, standards } = useStandardStore();
 
   const {
-    listFilterStatus,
-    applyCurrentTab,
-    setListFilterStatus,
-    setApplyCurrentTab,
-    getFilteredAppliesForList,
-    createApply,
-    withdrawApply,
-    batchImported,
-    batchData,
-    setBatchImported,
-    confirmBatchImport,
+    listFilterStatus, applyCurrentTab, setListFilterStatus, setApplyCurrentTab,
+    getFilteredAppliesForList, createApply, withdrawApply,
+    batchImported, batchData, setBatchImported, confirmBatchImport,
+    updateBatchItem, validateAndSubmitBatchItem, removeBatchItem, resetBatchData,
   } = useUnifiedApplyStore();
 
   const [activeTab, setActiveTab] = useState<TabKey>(applyCurrentTab);
@@ -91,39 +58,49 @@ export default function Apply() {
   const [formError, setFormError] = useState<string>('');
   const [importResult, setImportResult] = useState<{ success: number; failed: number } | null>(null);
   const [withdrawConfirm, setWithdrawConfirm] = useState<string | null>(null);
+  const [editingRow, setEditingRow] = useState<number | null>(null);
+  const [rowDraft, setRowDraft] = useState<any>(null);
+  const [singleResultMsg, setSingleResultMsg] = useState<string | null>(null);
+  const [highlightStandardId, setHighlightStandardId] = useState<string | null>(null);
+  const [highlightApplyId, setHighlightApplyId] = useState<string | null>(null);
+  const [highlightBreadcrumb, setHighlightBreadcrumb] = useState<{ standard?: Standard; applyId?: string } | null>(null);
 
-  // 处理从详情页跳过来的修改申请
   useEffect(() => {
-    const state = location.state as { editStandardId?: string; formType?: 'update' } | null;
+    const state = location.state as {
+      editStandardId?: string; formType?: 'update'; fromAuditId?: string;
+      focusApplyId?: string; focusStandardId?: string;
+    } | null;
     if (state?.editStandardId && state?.formType === 'update') {
       const standard = getStandardById(state.editStandardId);
       if (standard) {
         setEditStandardId(state.editStandardId);
         setFormType('update');
         setFormData({
-          nameCn: standard.nameCn,
-          nameEn: standard.nameEn,
-          code: standard.code,
-          domainName: standard.domainName,
-          dataType: standard.dataType,
-          owner: standard.owner,
-          meaning: standard.meaning,
-          valueRange: standard.valueRange,
-          example: standard.example,
+          nameCn: standard.nameCn, nameEn: standard.nameEn, code: standard.code,
+          domainName: standard.domainName, dataType: standard.dataType, owner: standard.owner,
+          meaning: standard.meaning, valueRange: standard.valueRange, example: standard.example,
           applyReason: '',
         });
         setActiveTab('my-applies');
       }
     }
+    if (state?.fromAuditId) {
+      setActiveTab('my-applies');
+    }
+    if (state?.focusStandardId) {
+      setHighlightStandardId(state.focusStandardId);
+      setActiveTab('my-applies');
+      // 尝试把关联的标准也加到面包屑里
+      const std = getStandardById(state.focusStandardId);
+      setHighlightBreadcrumb({ standard: std, applyId: state.focusApplyId });
+    }
+    if (state?.focusApplyId) {
+      setHighlightApplyId(state.focusApplyId);
+    }
   }, [location.state, getStandardById]);
 
-  useEffect(() => {
-    setListFilterStatus(filterStatus);
-  }, [filterStatus, setListFilterStatus]);
-
-  useEffect(() => {
-    setApplyCurrentTab(activeTab);
-  }, [activeTab, setApplyCurrentTab]);
+  useEffect(() => { setListFilterStatus(filterStatus); }, [filterStatus, setListFilterStatus]);
+  useEffect(() => { setApplyCurrentTab(activeTab); }, [activeTab, setApplyCurrentTab]);
 
   const filteredApplies = getFilteredAppliesForList();
 
@@ -147,34 +124,13 @@ export default function Apply() {
   };
 
   const validateForm = (): boolean => {
-    if (!formData.nameCn.trim()) {
-      setFormError('请输入标准中文名');
-      return false;
-    }
-    if (!formData.nameEn.trim()) {
-      setFormError('请输入标准英文名');
-      return false;
-    }
-    if (!formData.code.trim()) {
-      setFormError('请输入标准编码');
-      return false;
-    }
-    if (!formData.domainName.trim()) {
-      setFormError('请选择所属业务域');
-      return false;
-    }
-    if (!formData.owner.trim()) {
-      setFormError('请输入标准负责人');
-      return false;
-    }
-    if (!formData.meaning.trim()) {
-      setFormError('请输入标准含义');
-      return false;
-    }
-    if (!formData.applyReason.trim()) {
-      setFormError('请输入申请原因');
-      return false;
-    }
+    if (!formData.nameCn.trim()) { setFormError('请输入标准中文名'); return false; }
+    if (!formData.nameEn.trim()) { setFormError('请输入标准英文名'); return false; }
+    if (!formData.code.trim()) { setFormError('请输入标准编码'); return false; }
+    if (!formData.domainName.trim()) { setFormError('请选择所属业务域'); return false; }
+    if (!formData.owner.trim()) { setFormError('请输入标准负责人'); return false; }
+    if (!formData.meaning.trim()) { setFormError('请输入标准含义'); return false; }
+    if (!formData.applyReason.trim()) { setFormError('请输入申请原因'); return false; }
     setFormError('');
     return true;
   };
@@ -184,12 +140,9 @@ export default function Apply() {
     if (!validateForm() || !formType) return;
 
     const standardData: Partial<Standard> = {
-      nameCn: formData.nameCn.trim(),
-      nameEn: formData.nameEn.trim(),
-      code: formData.code.trim().toUpperCase(),
-      domainName: formData.domainName,
-      dataType: formData.dataType as Standard['dataType'],
-      owner: formData.owner.trim(),
+      nameCn: formData.nameCn.trim(), nameEn: formData.nameEn.trim(),
+      code: formData.code.trim().toUpperCase(), domainName: formData.domainName,
+      dataType: formData.dataType as Standard['dataType'], owner: formData.owner.trim(),
       meaning: formData.meaning.trim(),
       valueRange: formData.valueRange.trim() || '无特殊限制',
       example: formData.example.trim() || '无',
@@ -208,16 +161,54 @@ export default function Apply() {
 
   const handleWithdraw = (id: string) => {
     const ok = withdrawApply(id);
-    if (ok) {
-      setWithdrawConfirm(null);
-    }
+    if (ok) setWithdrawConfirm(null);
   };
 
   const handleConfirmImport = () => {
     const result = confirmBatchImport();
     setImportResult(result);
-    setTimeout(() => setImportResult(null), 4000);
+    setTimeout(() => setImportResult(null), 5000);
     setActiveTab('my-applies');
+  };
+
+  const gotoAuditAndSelect = (applyId: string) => {
+    navigate('/audit', { state: { focusApplyId: applyId } });
+  };
+
+  const findStandardFromApply = (apply: any): Standard | undefined => {
+    if (apply.type === 'create' && apply.status === 'approved') {
+      return standards.find(s => s.code === apply.standardData.code);
+    }
+    if (apply.standardId) return getStandardById(apply.standardId);
+    return undefined;
+  };
+
+  const startEditRow = (idx: number) => {
+    setEditingRow(idx);
+    setRowDraft({ ...batchData[idx] });
+  };
+
+  const cancelEditRow = () => {
+    setEditingRow(null);
+    setRowDraft(null);
+  };
+
+  const saveRowDraft = () => {
+    if (editingRow === null || !rowDraft) return;
+    updateBatchItem(editingRow, {
+      nameCn: rowDraft.nameCn, nameEn: rowDraft.nameEn,
+      code: rowDraft.code, domain: rowDraft.domain,
+    });
+    setEditingRow(null);
+    setRowDraft(null);
+  };
+
+  const submitSingleRow = (idx: number) => {
+    const applyId = validateAndSubmitBatchItem(idx);
+    if (applyId) {
+      setSingleResultMsg(`已修复并生成申请：${applyId}`);
+      setTimeout(() => setSingleResultMsg(null), 4000);
+    }
   };
 
   return (
@@ -226,13 +217,23 @@ export default function Apply() {
         {importResult && (
           <div className="bg-success-50 border border-success-200 text-success-700 rounded-lg px-4 py-3 flex items-center gap-3">
             <CheckCircle className="w-5 h-5 flex-shrink-0" />
-            <div>
+            <div className="flex-1">
               <span className="font-medium">批量导入完成！</span>
               <span className="ml-2">成功生成 {importResult.success} 条待审核申请</span>
               {importResult.failed > 0 && (
-                <span className="ml-2 text-danger-600">，{importResult.failed} 条数据因异常已跳过</span>
+                <span className="ml-2 text-danger-600">，{importResult.failed} 条数据因异常已跳过（仍保留在列表中可修复）</span>
               )}
             </div>
+            <button onClick={() => setActiveTab('batch-import')} className="text-xs text-primary-600 hover:text-primary-700 flex items-center gap-1">
+              查看异常行 <ChevronRight className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
+        {singleResultMsg && (
+          <div className="bg-primary-50 border border-primary-200 text-primary-700 rounded-lg px-4 py-3 flex items-center gap-3">
+            <CheckCircle className="w-5 h-5 flex-shrink-0" />
+            <div>{singleResultMsg}</div>
           </div>
         )}
 
@@ -240,13 +241,7 @@ export default function Apply() {
           <div className="flex border-b border-slate-200">
             <button
               onClick={() => setActiveTab('my-applies')}
-              className={`
-                px-6 py-3 text-sm font-medium border-b-2 transition-colors
-                ${activeTab === 'my-applies'
-                  ? 'border-primary-600 text-primary-700'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-                }
-              `}
+              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'my-applies' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
             >
               <span className="flex items-center gap-2">
                 <FileText className="w-4 h-4" />
@@ -256,17 +251,14 @@ export default function Apply() {
             </button>
             <button
               onClick={() => setActiveTab('batch-import')}
-              className={`
-                px-6 py-3 text-sm font-medium border-b-2 transition-colors
-                ${activeTab === 'batch-import'
-                  ? 'border-primary-600 text-primary-700'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-                }
-              `}
+              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'batch-import' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
             >
               <span className="flex items-center gap-2">
                 <Upload className="w-4 h-4" />
                 批量导入
+                {batchData.some(d => d.error) && (
+                  <Tag variant="danger" className="ml-1">{batchData.filter(d => d.error).length}</Tag>
+                )}
               </span>
             </button>
           </div>
@@ -274,34 +266,78 @@ export default function Apply() {
           <div className="p-6">
             {activeTab === 'my-applies' && (
               <div>
+                {/* 面包屑联动提示 */}
+                {highlightBreadcrumb && (highlightBreadcrumb.standard || highlightBreadcrumb.applyId) && (
+                  <div className="mb-4 bg-gradient-to-r from-accent-50 to-primary-50 border border-accent-100 rounded-lg px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2 text-sm flex-wrap">
+                      {highlightBreadcrumb.standard && (
+                        <>
+                          <span className="flex items-center gap-1.5 text-slate-700">
+                            <Database className="w-4 h-4 text-accent-600" />
+                            标准：<span className="font-medium">{highlightBreadcrumb.standard.nameCn}</span>
+                            <span className="font-mono text-xs text-slate-500">({highlightBreadcrumb.standard.code})</span>
+                          </span>
+                          <button
+                            onClick={() => navigate(`/standard/${highlightBreadcrumb.standard!.id}`, {
+                              state: { focusTab: 'ledger' },
+                            })}
+                            className="flex items-center gap-1 text-primary-600 hover:text-primary-700 bg-white/60 hover:bg-white px-2.5 py-1 rounded-md transition-colors"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            打开详情
+                          </button>
+                          <button
+                            onClick={() => navigate('/audit', {
+                              state: { fromStandardId: highlightBreadcrumb.standard!.id },
+                            })}
+                            className="flex items-center gap-1 text-primary-600 hover:text-primary-700 bg-white/60 hover:bg-white px-2.5 py-1 rounded-md transition-colors"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            审核记录
+                          </button>
+                          <button
+                            onClick={() => navigate('/reference', {
+                              state: { focusStandardId: highlightBreadcrumb.standard!.id },
+                            })}
+                            className="flex items-center gap-1 text-primary-600 hover:text-primary-700 bg-white/60 hover:bg-white px-2.5 py-1 rounded-md transition-colors"
+                          >
+                            <Link2 className="w-3.5 h-3.5" />
+                            引用查询
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => {
+                        setHighlightBreadcrumb(null);
+                        setHighlightStandardId(null);
+                        setHighlightApplyId(null);
+                      }}
+                      className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                    >
+                      清除定位
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     {(['all', 'pending', 'approved', 'rejected'] as const).map((status) => (
                       <button
                         key={status}
                         onClick={() => setFilterStatus(status)}
-                        className={`
-                          px-3 py-1.5 text-xs rounded transition-colors
-                          ${filterStatus === status
-                            ? 'bg-primary-50 text-primary-700 font-medium'
-                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                          }
-                        `}
+                        className={`px-3 py-1.5 text-xs rounded transition-colors ${filterStatus === status ? 'bg-primary-50 text-primary-700 font-medium' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
                       >
                         {status === 'all' ? '全部' : statusConfig[status as keyof typeof statusConfig]?.label}
                       </button>
                     ))}
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleOpenCreateForm}
-                      className="flex items-center gap-1.5 px-4 py-2 text-sm text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                      新增标准
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleOpenCreateForm}
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />新增标准
+                  </button>
                 </div>
 
                 <div className="space-y-3">
@@ -309,13 +345,25 @@ export default function Apply() {
                     filteredApplies.map((apply) => {
                       const statusCfg = statusConfig[apply.status as keyof typeof statusConfig];
                       const StatusIcon = statusCfg.icon;
+                      const linkedStd = findStandardFromApply(apply);
+                      const isHighlightByApply = apply.id === highlightApplyId;
+                      const isHighlightByStandard = highlightStandardId && (
+                        apply.standardId === highlightStandardId ||
+                        (apply.type === 'create' && apply.status === 'approved' &&
+                          linkedStd?.id === highlightStandardId)
+                      );
+                      const isHighlighted = isHighlightByApply || isHighlightByStandard;
                       return (
                         <div
                           key={apply.id}
-                          className="border border-slate-200 rounded-lg p-4 hover:border-primary-200 transition-colors"
+                          className={`border rounded-lg p-4 transition-colors ${
+                            isHighlighted
+                              ? 'border-primary-300 ring-2 ring-primary-200 bg-gradient-to-r from-primary-50/50 to-transparent shadow-sm'
+                              : 'border-slate-200 hover:border-primary-200'
+                          }`}
                         >
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-2 flex-wrap">
                                 <h4 className="font-medium text-slate-800">
                                   {apply.standardData.nameCn || apply.standardData.code || '未命名标准'}
@@ -327,14 +375,10 @@ export default function Apply() {
                                 )}
                                 <Tag variant="accent">{typeLabels[apply.type]}</Tag>
                                 <Tag variant={statusCfg.variant}>
-                                  <span className="flex items-center gap-1">
-                                    <StatusIcon className="w-3 h-3" />
-                                    {statusCfg.label}
-                                  </span>
+                                  <span className="flex items-center gap-1"><StatusIcon className="w-3 h-3" />{statusCfg.label}</span>
                                 </Tag>
-                                {apply.standardData.domainName && (
-                                  <Tag variant="default">{apply.standardData.domainName}</Tag>
-                                )}
+                                {apply.standardData.domainName && <Tag variant="default">{apply.standardData.domainName}</Tag>}
+                                <span className="text-xs text-slate-400 font-mono">#{apply.id}</span>
                               </div>
 
                               {apply.standardData.meaning && (
@@ -369,25 +413,15 @@ export default function Apply() {
 
                               <div className="bg-amber-50 border border-amber-100 rounded px-3 py-2 mb-3">
                                 <p className="text-xs text-amber-600">
-                                  <span className="font-medium">申请原因：</span>
-                                  {apply.applyReason}
+                                  <span className="font-medium">申请原因：</span>{apply.applyReason}
                                 </p>
                               </div>
 
                               <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
-                                <span className="flex items-center gap-1">
-                                  <User className="w-3 h-3" />
-                                  申请人：{apply.applicant}
-                                </span>
-                                <span className="flex items-center gap-1">
-                                  <Clock className="w-3 h-3" />
-                                  提交时间：{apply.submitTime}
-                                </span>
+                                <span className="flex items-center gap-1"><User className="w-3 h-3" />申请人：{apply.applicant}</span>
+                                <span className="flex items-center gap-1"><Clock className="w-3 h-3" />提交时间：{apply.submitTime}</span>
                                 {apply.auditRecords.length > 0 && (
-                                  <span className="text-primary-600 flex items-center gap-1">
-                                    <CheckCircle className="w-3 h-3" />
-                                    已审核 {apply.auditRecords.length} 次
-                                  </span>
+                                  <span className="text-primary-600 flex items-center gap-1"><CheckCircle className="w-3 h-3" />已审核 {apply.auditRecords.length} 次</span>
                                 )}
                               </div>
 
@@ -396,38 +430,34 @@ export default function Apply() {
                                   {apply.auditRecords.map((record) => (
                                     <div
                                       key={record.id}
-                                      className={`
-                                        rounded-lg p-3 text-sm
-                                        ${record.result === 'approved'
-                                          ? 'bg-success-50 border border-success-100'
-                                          : 'bg-danger-50 border border-danger-100'
-                                        }
-                                      `}
+                                      className={`rounded-lg p-3 text-sm ${record.result === 'approved' ? 'bg-success-50 border border-success-100' : 'bg-danger-50 border border-danger-100'}`}
                                     >
                                       <div className="flex items-center justify-between mb-1">
                                         <div className="flex items-center gap-2">
-                                          {record.result === 'approved' ? (
-                                            <Check className="w-4 h-4 text-success-600" />
-                                          ) : (
-                                            <X className="w-4 h-4 text-danger-600" />
-                                          )}
+                                          {record.result === 'approved' ? <Check className="w-4 h-4 text-success-600" /> : <X className="w-4 h-4 text-danger-600" />}
                                           <span className={record.result === 'approved' ? 'text-success-700 font-medium' : 'text-danger-700 font-medium'}>
                                             {record.auditor} · {record.result === 'approved' ? '审核通过' : '审核驳回'}
                                           </span>
                                         </div>
                                         <span className="text-xs text-slate-400">{record.auditTime}</span>
                                       </div>
-                                      <p className="text-slate-600 text-xs mt-1">
-                                        <span className="font-medium">审核意见：</span>
-                                        {record.comment}
-                                      </p>
+                                      <p className="text-slate-600 text-xs mt-1"><span className="font-medium">审核意见：</span>{record.comment}</p>
                                     </div>
                                   ))}
                                 </div>
                               )}
                             </div>
 
-                            <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+                            <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                              {linkedStd && (
+                                <button
+                                  onClick={() => navigate(`/standard/${linkedStd.id}`)}
+                                  className="text-xs text-slate-500 hover:text-primary-600 flex items-center gap-1"
+                                  title="查看标准详情"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />查看标准
+                                </button>
+                              )}
                               {apply.status === 'pending' && withdrawConfirm !== apply.id && (
                                 <button
                                   onClick={() => setWithdrawConfirm(apply.id)}
@@ -440,22 +470,12 @@ export default function Apply() {
                               {apply.status === 'pending' && withdrawConfirm === apply.id && (
                                 <div className="flex items-center gap-1 bg-danger-50 border border-danger-200 rounded px-2 py-1">
                                   <span className="text-xs text-danger-600">确认撤回？</span>
-                                  <button
-                                    onClick={() => handleWithdraw(apply.id)}
-                                    className="text-xs bg-danger-600 text-white px-2 py-0.5 rounded hover:bg-danger-700"
-                                  >
-                                    确认
-                                  </button>
-                                  <button
-                                    onClick={() => setWithdrawConfirm(null)}
-                                    className="text-xs text-slate-500 hover:text-slate-700 px-2 py-0.5"
-                                  >
-                                    取消
-                                  </button>
+                                  <button onClick={() => handleWithdraw(apply.id)} className="text-xs bg-danger-600 text-white px-2 py-0.5 rounded hover:bg-danger-700">确认</button>
+                                  <button onClick={() => setWithdrawConfirm(null)} className="text-xs text-slate-500 hover:text-slate-700 px-2 py-0.5">取消</button>
                                 </div>
                               )}
                               <button
-                                onClick={() => navigate(`/audit`)}
+                                onClick={() => gotoAuditAndSelect(apply.id)}
                                 className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
                               >
                                 查看审核 <ChevronRight className="w-4 h-4" />
@@ -479,13 +499,7 @@ export default function Apply() {
             {activeTab === 'batch-import' && (
               <div className="space-y-6">
                 <div
-                  className={`
-                    border-2 rounded-lg p-8 text-center transition-colors cursor-pointer
-                    ${!batchImported
-                      ? 'border-dashed border-slate-300 hover:border-primary-400'
-                      : 'border-solid border-success-300 bg-success-50/30'
-                    }
-                  `}
+                  className={`border-2 rounded-lg p-8 text-center transition-colors cursor-pointer ${!batchImported ? 'border-dashed border-slate-300 hover:border-primary-400' : 'border-solid border-success-300 bg-success-50/30'}`}
                   onClick={() => !batchImported && setBatchImported(true)}
                 >
                   {!batchImported ? (
@@ -504,7 +518,7 @@ export default function Apply() {
                       <p className="text-xs text-slate-400 mb-3">25.6KB · 已上传</p>
                       <div className="flex items-center justify-center gap-3">
                         <button
-                          onClick={(e) => { e.stopPropagation(); setBatchImported(false); }}
+                          onClick={(e) => { e.stopPropagation(); setBatchImported(false); resetBatchData(); }}
                           className="text-xs text-danger-600 hover:text-danger-700"
                         >
                           重新上传
@@ -519,24 +533,28 @@ export default function Apply() {
                     不确定模板格式？
                     <button className="text-primary-600 hover:text-primary-700 ml-1">
                       <span className="flex items-center gap-1 inline-flex">
-                        <Download className="w-3.5 h-3.5" />
-                        下载导入模板
+                        <Download className="w-3.5 h-3.5" />下载导入模板
                       </span>
                     </button>
                   </div>
+                  {batchData.length > 0 && (
+                    <button
+                      onClick={resetBatchData}
+                      className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
+                    >
+                      <RefreshCcw className="w-3 h-3" />重置数据
+                    </button>
+                  )}
                 </div>
 
                 {batchImported && (
                   <div className="border border-slate-200 rounded-lg">
-                    <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                      <h4 className="text-sm font-medium text-slate-700">数据预览</h4>
+                    <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+                      <h4 className="text-sm font-medium text-slate-700">数据预览（支持行内修改异常数据）</h4>
                       <div className="flex items-center gap-2 text-xs">
-                        <Tag variant="success">
-                          {batchData.filter(d => !d.error).length} 条有效
-                        </Tag>
-                        <Tag variant="danger">
-                          {batchData.filter(d => d.error).length} 条异常
-                        </Tag>
+                        <Tag variant="success">{batchData.filter(d => !d.error && !d.imported).length} 条有效待提交</Tag>
+                        <Tag variant="default">{batchData.filter(d => d.imported).length} 条已生成申请</Tag>
+                        <Tag variant="danger">{batchData.filter(d => d.error).length} 条异常</Tag>
                         <Tag variant="default">共 {batchData.length} 条</Tag>
                       </div>
                     </div>
@@ -549,43 +567,130 @@ export default function Apply() {
                             <th className="text-left py-2.5 px-4 font-medium text-slate-600">编码</th>
                             <th className="text-left py-2.5 px-4 font-medium text-slate-600">业务域</th>
                             <th className="text-left py-2.5 px-4 font-medium text-slate-600">状态</th>
+                            <th className="text-right py-2.5 px-4 font-medium text-slate-600">操作</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {batchData.map((item, idx) => (
-                            <tr
-                              key={idx}
-                              className={idx !== batchData.length - 1 ? 'border-b border-slate-100' : ''}
-                            >
-                              <td className="py-3 px-4 text-slate-700">{item.nameCn}</td>
-                              <td className="py-3 px-4 text-slate-500">{item.nameEn}</td>
-                              <td className="py-3 px-4">
-                                <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs">{item.code}</code>
-                              </td>
-                              <td className="py-3 px-4 text-slate-500">{item.domain}</td>
-                              <td className="py-3 px-4">
-                                {item.error ? (
-                                  <div className="flex items-center gap-1 text-danger-600">
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                    <span className="text-xs">{item.error}</span>
-                                  </div>
-                                ) : (
-                                  <Tag variant="success">{item.status}</Tag>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
+                          {batchData.map((item, idx) => {
+                            const isEditing = editingRow === idx;
+                            const data = isEditing ? rowDraft : item;
+                            return (
+                              <tr
+                                key={idx}
+                                className={`${idx !== batchData.length - 1 ? 'border-b border-slate-100' : ''} ${item.error && !isEditing ? 'bg-danger-50/30' : ''}`}
+                              >
+                                <td className="py-3 px-4">
+                                  {isEditing ? (
+                                    <input
+                                      value={data?.nameCn || ''}
+                                      onChange={(e) => setRowDraft({ ...rowDraft, nameCn: e.target.value })}
+                                      className="w-full h-8 px-2 bg-white border border-primary-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
+                                    />
+                                  ) : (
+                                    <span className={`${item.error ? 'text-danger-700 font-medium' : 'text-slate-700'}`}>{item.nameCn}</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4">
+                                  {isEditing ? (
+                                    <input
+                                      value={data?.nameEn || ''}
+                                      onChange={(e) => setRowDraft({ ...rowDraft, nameEn: e.target.value })}
+                                      className="w-full h-8 px-2 bg-white border border-primary-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
+                                    />
+                                  ) : <span className="text-slate-500">{item.nameEn}</span>}
+                                </td>
+                                <td className="py-3 px-4">
+                                  {isEditing ? (
+                                    <input
+                                      value={data?.code || ''}
+                                      onChange={(e) => setRowDraft({ ...rowDraft, code: e.target.value.toUpperCase() })}
+                                      className="w-full h-8 px-2 bg-white border border-primary-300 rounded text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary-500"
+                                    />
+                                  ) : <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs">{item.code}</code>}
+                                </td>
+                                <td className="py-3 px-4">
+                                  {isEditing ? (
+                                    <select
+                                      value={data?.domain || ''}
+                                      onChange={(e) => setRowDraft({ ...rowDraft, domain: e.target.value })}
+                                      className="w-full h-8 px-2 bg-white border border-primary-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
+                                    >
+                                      <option>客户域</option><option>产品域</option><option>交易域</option>
+                                      <option>账务域</option><option>风控域</option>
+                                    </select>
+                                  ) : <span className="text-slate-500">{item.domain}</span>}
+                                </td>
+                                <td className="py-3 px-4 min-w-[180px]">
+                                  {isEditing ? (
+                                    <div className="text-xs text-primary-600 flex items-center gap-1">
+                                      <Edit3 className="w-3 h-3" />编辑中，保存后重新校验
+                                    </div>
+                                  ) : item.imported ? (
+                                    <div className="flex items-center gap-1 text-primary-600">
+                                      <ExternalLink className="w-3.5 h-3.5" />
+                                      <span className="text-xs">{item.status}</span>
+                                    </div>
+                                  ) : item.error ? (
+                                    <div>
+                                      <div className="flex items-center gap-1 text-danger-600">
+                                        <AlertCircle className="w-3.5 h-3.5" />
+                                        <span className="text-xs">{item.error}</span>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <Tag variant="success">{item.status}</Tag>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-right whitespace-nowrap">
+                                  {isEditing ? (
+                                    <div className="flex items-center justify-end gap-1">
+                                      <button onClick={saveRowDraft} className="flex items-center gap-1 px-2 py-1 text-xs text-white bg-success-600 rounded hover:bg-success-700">
+                                        <Save className="w-3 h-3" />保存
+                                      </button>
+                                      <button onClick={cancelEditRow} className="px-2 py-1 text-xs text-slate-500 hover:text-slate-700 bg-slate-100 rounded">
+                                        取消
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center justify-end gap-1">
+                                      {!item.imported && !item.error && (
+                                        <button
+                                          onClick={() => submitSingleRow(idx)}
+                                          className="flex items-center gap-1 px-2 py-1 text-xs text-white bg-primary-600 rounded hover:bg-primary-700"
+                                          title="单独提交该行"
+                                        >
+                                          <CheckCircle className="w-3 h-3" />提交
+                                        </button>
+                                      )}
+                                      {item.error && (
+                                        <button onClick={() => startEditRow(idx)} className="flex items-center gap-1 px-2 py-1 text-xs text-white bg-warning-500 rounded hover:bg-warning-600">
+                                          <Edit3 className="w-3 h-3" />修复
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => removeBatchItem(idx)}
+                                        className="p-1 text-slate-400 hover:text-danger-500 rounded hover:bg-danger-50"
+                                        title="移除该行"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
-                    <div className="px-4 py-3 bg-slate-50 rounded-b-lg flex items-center justify-between">
+                    <div className="px-4 py-3 bg-slate-50 rounded-b-lg flex items-center justify-between flex-wrap gap-2">
                       <p className="text-xs text-slate-500">
                         <AlertCircle className="w-3.5 h-3.5 inline mr-1 text-warning-500" />
-                        异常数据将被跳过，有效数据将生成待审核申请
+                        异常行可点击「修复」直接修改，改完点「保存」→ 再点「提交」单独走审核；或直接「确认导入」批量处理有效行
                       </p>
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => setBatchImported(false)}
+                          onClick={() => { setBatchImported(false); resetBatchData(); }}
                           className="px-4 py-2 text-sm text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50 transition-colors"
                         >
                           取消
@@ -615,15 +720,10 @@ export default function Apply() {
                     {formType === 'create' ? '新增标准申请' : '修改标准申请'}
                   </h3>
                   {formType === 'update' && (
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      修改已发布的标准定义，审核通过后将生成新版本
-                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">修改已发布的标准定义，审核通过后将生成新版本</p>
                   )}
                 </div>
-                <button
-                  onClick={handleCloseForm}
-                  className="text-slate-400 hover:text-slate-600 p-1"
-                >
+                <button onClick={handleCloseForm} className="text-slate-400 hover:text-slate-600 p-1">
                   <XCircle className="w-5 h-5" />
                 </button>
               </div>
@@ -631,179 +731,86 @@ export default function Apply() {
               <form onSubmit={handleSubmitApply} className="p-6 space-y-4 overflow-y-auto flex-1">
                 {formError && (
                   <div className="bg-danger-50 border border-danger-200 text-danger-700 rounded-md px-4 py-2.5 text-sm flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    {formError}
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />{formError}
                   </div>
                 )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      中文名 <span className="text-danger-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.nameCn}
-                      onChange={(e) => handleInputChange('nameCn', e.target.value)}
-                      placeholder="请输入标准中文名"
-                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm
-                        focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                    />
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">中文名 <span className="text-danger-500">*</span></label>
+                    <input type="text" value={formData.nameCn} onChange={(e) => handleInputChange('nameCn', e.target.value)} placeholder="请输入标准中文名"
+                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      英文名 <span className="text-danger-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.nameEn}
-                      onChange={(e) => handleInputChange('nameEn', e.target.value)}
-                      placeholder="请输入标准英文名"
-                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm
-                        focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                    />
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">英文名 <span className="text-danger-500">*</span></label>
+                    <input type="text" value={formData.nameEn} onChange={(e) => handleInputChange('nameEn', e.target.value)} placeholder="请输入标准英文名"
+                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500" />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      标准编码 <span className="text-danger-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.code}
-                      onChange={(e) => handleInputChange('code', e.target.value)}
-                      placeholder="如：CUST_ID（自动转为大写）"
-                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm font-mono
-                        focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                    />
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">标准编码 <span className="text-danger-500">*</span></label>
+                    <input type="text" value={formData.code} onChange={(e) => handleInputChange('code', e.target.value)} placeholder="如：CUST_ID（自动转为大写）"
+                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      所属业务域 <span className="text-danger-500">*</span>
-                    </label>
-                    <select
-                      value={formData.domainName}
-                      onChange={(e) => handleInputChange('domainName', e.target.value)}
-                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm
-                        focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                    >
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">所属业务域 <span className="text-danger-500">*</span></label>
+                    <select value={formData.domainName} onChange={(e) => handleInputChange('domainName', e.target.value)}
+                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500">
                       <option value="">请选择业务域</option>
-                      <option>客户域</option>
-                      <option>产品域</option>
-                      <option>交易域</option>
-                      <option>账务域</option>
-                      <option>风控域</option>
+                      <option>客户域</option><option>产品域</option><option>交易域</option><option>账务域</option><option>风控域</option>
                     </select>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      数据类型 <span className="text-danger-500">*</span>
-                    </label>
-                    <select
-                      value={formData.dataType}
-                      onChange={(e) => handleInputChange('dataType', e.target.value)}
-                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm
-                        focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                    >
-                      <option value="string">字符串</option>
-                      <option value="number">数值</option>
-                      <option value="boolean">布尔</option>
-                      <option value="date">日期</option>
-                      <option value="enum">枚举</option>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">数据类型 <span className="text-danger-500">*</span></label>
+                    <select value={formData.dataType} onChange={(e) => handleInputChange('dataType', e.target.value)}
+                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500">
+                      <option value="string">字符串</option><option value="number">数值</option><option value="boolean">布尔</option>
+                      <option value="date">日期</option><option value="enum">枚举</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      标准负责人 <span className="text-danger-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.owner}
-                      onChange={(e) => handleInputChange('owner', e.target.value)}
-                      placeholder="请输入负责人姓名"
-                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm
-                        focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                    />
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">标准负责人 <span className="text-danger-500">*</span></label>
+                    <input type="text" value={formData.owner} onChange={(e) => handleInputChange('owner', e.target.value)} placeholder="请输入负责人姓名"
+                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500" />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    标准含义 <span className="text-danger-500">*</span>
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={formData.meaning}
-                    onChange={(e) => handleInputChange('meaning', e.target.value)}
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">标准含义 <span className="text-danger-500">*</span></label>
+                  <textarea rows={3} value={formData.meaning} onChange={(e) => handleInputChange('meaning', e.target.value)}
                     placeholder="请详细描述标准的含义和业务规则"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm
-                      focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 resize-none"
-                  />
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 resize-none" />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    取值范围
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={formData.valueRange}
-                    onChange={(e) => handleInputChange('valueRange', e.target.value)}
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">取值范围</label>
+                  <textarea rows={2} value={formData.valueRange} onChange={(e) => handleInputChange('valueRange', e.target.value)}
                     placeholder="请描述标准的取值范围或约束条件"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm
-                      focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 resize-none"
-                  />
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 resize-none" />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    示例
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.example}
-                    onChange={(e) => handleInputChange('example', e.target.value)}
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">示例</label>
+                  <input type="text" value={formData.example} onChange={(e) => handleInputChange('example', e.target.value)}
                     placeholder="请输入标准的使用示例"
-                    className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm
-                      focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                  />
+                    className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500" />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    申请原因 <span className="text-danger-500">*</span>
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={formData.applyReason}
-                    onChange={(e) => handleInputChange('applyReason', e.target.value)}
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">申请原因 <span className="text-danger-500">*</span></label>
+                  <textarea rows={2} value={formData.applyReason} onChange={(e) => handleInputChange('applyReason', e.target.value)}
                     placeholder="请说明申请新增/修改的原因和业务背景"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm
-                      focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 resize-none"
-                  />
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 resize-none" />
                 </div>
               </form>
 
               <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-3 flex-shrink-0 bg-slate-50">
-                <button
-                  type="button"
-                  onClick={handleCloseForm}
-                  className="px-4 py-2 text-sm text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-100 transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  onClick={handleSubmitApply}
-                  className="px-5 py-2 text-sm text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-colors font-medium"
-                >
-                  提交申请
-                </button>
+                <button type="button" onClick={handleCloseForm}
+                  className="px-4 py-2 text-sm text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-100 transition-colors">取消</button>
+                <button type="submit" onClick={handleSubmitApply}
+                  className="px-5 py-2 text-sm text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-colors font-medium">提交申请</button>
               </div>
             </div>
           </div>
